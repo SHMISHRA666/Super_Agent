@@ -37,9 +37,51 @@ def is_difficult_website(url: str) -> bool:
         print(f"⚠️ Failed to read difficult_websites.txt: {e}")
         return False
 
-# Make sure these utilities exist
-def ascii_only(text: str) -> str:
-    return text.encode("ascii", errors="ignore").decode()
+# Improved function to handle Unicode characters safely
+def safe_text_cleanup(text: str) -> str:
+    """Safely clean text by removing problematic characters while preserving readability"""
+    if not text:
+        return ""
+    
+    try:
+        # First try to normalize Unicode
+        import unicodedata
+        text = unicodedata.normalize('NFKC', text)
+        
+        # Replace common problematic characters
+        replacements = {
+            '\u201c': '"',  # Left double quotation mark
+            '\u201d': '"',  # Right double quotation mark
+            '\u2018': "'",  # Left single quotation mark
+            '\u2019': "'",  # Right single quotation mark
+            '\u2013': '-',  # En dash
+            '\u2014': '--', # Em dash
+            '\u2026': '...', # Horizontal ellipsis
+            '\u00a0': ' ',  # Non-breaking space
+            '\u200b': '',   # Zero-width space
+            '\u200c': '',   # Zero-width non-joiner
+            '\u200d': '',   # Zero-width joiner
+        }
+        
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+        
+        # Remove other control characters except newlines and tabs
+        import re
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+        
+        # Clean up whitespace
+        text = ' '.join(text.split())
+        
+        return text
+        
+    except Exception as e:
+        print(f"Warning: Text cleanup failed: {e}")
+        # Fallback: try to encode/decode with errors='replace'
+        try:
+            return text.encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            return "[encoding error]"
 
 def choose_best_text(visible, main, trafilatura_):
     # Simple heuristic: prefer main if long, fallback otherwise
@@ -114,7 +156,7 @@ async def web_tool_playwright(url: str, max_total_wait: int = 15) -> dict:
                 "text": visible_text,
                 "main_text": main_text,
                 "trafilatura_text": trafilatura_text,
-                "best_text": ascii_only(best_text),
+                "best_text": safe_text_cleanup(best_text),
                 "best_text_source": source
             })
 
@@ -175,7 +217,7 @@ async def smart_web_extract(url: str, timeout: int = 5) -> dict:
                 "text": visible_text,
                 "main_text": main_text,
                 "trafilatura_text": trafilatura_text,
-                "best_text": ascii_only(best_text),
+                "best_text": safe_text_cleanup(best_text),
                 "best_text_source": best_source
             }
 

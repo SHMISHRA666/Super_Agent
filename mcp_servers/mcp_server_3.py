@@ -21,6 +21,21 @@ import asyncio
 import os
 import random
 
+# Force UTF-8 encoding for the entire process
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+def safe_str(obj) -> str:
+    """Safely convert any object to string, handling Unicode characters"""
+    try:
+        if isinstance(obj, str):
+            return obj
+        return str(obj)
+    except UnicodeEncodeError:
+        try:
+            return obj.encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            return "[encoding error]"
+
 load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -54,7 +69,15 @@ async def search_web_with_text_content(input: SearchInput, ctx: Context) -> dict
                 # Use existing web extraction function
                 web_result = await asyncio.wait_for(smart_web_extract(url), timeout=15)
                 text_content = web_result.get("best_text", "")[:4000]  # Limit length
-                text_content = text_content.replace('\n', ' ').replace('  ', ' ').strip()
+                
+                # Clean the text content to prevent encoding issues
+                try:
+                    import unicodedata
+                    text_content = unicodedata.normalize('NFKC', text_content)
+                    text_content = text_content.replace('\n', ' ').replace('  ', ' ').strip()
+                except Exception as e:
+                    print(f"Warning: Text cleaning failed for {url}: {e}")
+                    text_content = text_content.replace('\n', ' ').replace('  ', ' ').strip()
                 
                 results.append({
                     "url": url,
@@ -70,9 +93,10 @@ async def search_web_with_text_content(input: SearchInput, ctx: Context) -> dict
                     "rank": i + 1
                 })
             except Exception as e:
+                print(f"Error extracting content from {url}: {safe_str(e)}")
                 results.append({
                     "url": url,
-                    "content": f"[error] {str(e)}",
+                    "content": f"[error] {safe_str(e)}",
                     "rank": i + 1
                 })
         
@@ -89,7 +113,7 @@ async def search_web_with_text_content(input: SearchInput, ctx: Context) -> dict
             "content": [
                 TextContent(
                     type="text",
-                    text=str(results)  # RetrieverAgent can parse this
+                    text=safe_str(results)  # Use safe_str to prevent encoding errors
                 )
             ]
         }
@@ -100,13 +124,13 @@ async def search_web_with_text_content(input: SearchInput, ctx: Context) -> dict
             "content": [
                 TextContent(
                     type="text",
-                    text=f"[error] {str(e)}"
+                    text=f"[error] {safe_str(e)}"
                 )
             ]
         }
 
 
-# Duckduck not responding? Check this: https://html.duckduckgo.com/html?q=Model+Context+Protocol
+# Duckduck not responding? Check this: https://html.duckduckgo.com/html
 @mcp.tool()
 async def fetch_search_urls(input: SearchInput, ctx: Context) -> URLListOutput:
     """Get top website URLs for your search query. Just get's the URL's not the contents"""
@@ -116,7 +140,7 @@ async def fetch_search_urls(input: SearchInput, ctx: Context) -> URLListOutput:
         return URLListOutput(result=urls)
     except Exception as e:
         traceback.print_exc(file=sys.stderr)
-        return URLListOutput(result=[f"[error] {str(e)}"])
+        return URLListOutput(result=[f"[error] {safe_str(e)}"])
 
 
 @mcp.tool()
@@ -141,6 +165,15 @@ async def webpage_url_to_raw_text(url: str) -> dict:
                 )
             ]
         }
+    except Exception as e:
+        return {
+            "content": [
+                TextContent(
+                    type="text",
+                    text=f"[error] {safe_str(e)}"
+                )
+            ]
+        }
 
 
 @mcp.tool()
@@ -160,7 +193,30 @@ async def webpage_url_to_llm_summary(input: SummaryInput, ctx: Context) -> dict:
                 ]
             }
 
-        clean_text = text.encode("utf-8", errors="replace").decode("utf-8").strip()
+        # Improved text cleaning to handle Unicode characters
+        try:
+            import unicodedata
+            clean_text = unicodedata.normalize('NFKC', text)
+            
+            # Replace problematic Unicode characters
+            replacements = {
+                '\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
+                '\u2013': '-', '\u2014': '--', '\u2026': '...',
+                '\u00a0': ' ', '\u200b': '', '\u200c': '', '\u200d': ''
+            }
+            
+            for old, new in replacements.items():
+                clean_text = clean_text.replace(old, new)
+            
+            # Remove control characters except newlines and tabs
+            import re
+            clean_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', clean_text)
+            clean_text = clean_text.strip()
+            
+        except Exception as e:
+            print(f"Warning: Text cleaning failed: {e}")
+            # Fallback to simple encoding
+            clean_text = text.encode("utf-8", errors="replace").decode("utf-8").strip()
 
         prompt = input.prompt or (
             "Summarize this text as best as possible. Keep important entities and values intact. "
@@ -175,7 +231,17 @@ async def webpage_url_to_llm_summary(input: SummaryInput, ctx: Context) -> dict:
         )
 
         raw = response.candidates[0].content.parts[0].text
-        summary = raw.encode("utf-8", errors="replace").decode("utf-8").strip()
+        
+        # Clean the summary response as well
+        try:
+            summary = unicodedata.normalize('NFKC', raw)
+            for old, new in replacements.items():
+                summary = summary.replace(old, new)
+            summary = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', summary)
+            summary = summary.strip()
+        except Exception as e:
+            print(f"Warning: Summary cleaning failed: {e}")
+            summary = raw.encode("utf-8", errors="replace").decode("utf-8").strip()
 
         return {
             "content": [

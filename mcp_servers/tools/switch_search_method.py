@@ -47,33 +47,63 @@ def get_random_headers():
     ]
     return {"User-Agent": random.choice(user_agents)}
 
+def safe_url_cleanup(url: str) -> str:
+    """Safely clean URLs to prevent encoding issues"""
+    try:
+        # Normalize Unicode
+        import unicodedata
+        url = unicodedata.normalize('NFKC', url)
+        
+        # Replace problematic characters in URLs
+        replacements = {
+            '\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
+            '\u2013': '-', '\u2014': '--', '\u2026': '...',
+            '\u00a0': ' ', '\u200b': '', '\u200c': '', '\u200d': ''
+        }
+        
+        for old, new in replacements.items():
+            url = url.replace(old, new)
+        
+        return url
+    except Exception as e:
+        print(f"Warning: URL cleanup failed: {e}")
+        return url
+
 async def use_duckduckgo_http(query: str) -> List[str]:
     await rate_limiter.acquire("duck_http")
     url = "https://html.duckduckgo.com/html"
     headers = get_random_headers()
     data = {"q": query}
 
-    async with httpx.AsyncClient() as client:
-        r = await client.post(url, data=data, headers=headers, timeout=30.0)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-        links = []
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, data=data, headers=headers, timeout=30.0)
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
+            links = []
 
-        for a in soup.select("a.result__a"):
-            href = a.get("href", "")
-            if not href:
-                continue
-            if "uddg=" in href:
-                parts = href.split("uddg=")
-                if len(parts) > 1:
-                    href = urllib.parse.unquote(parts[1].split("&")[0])
-            if href.startswith("http") and href not in links:
-                links.append(href)
+            for a in soup.select("a.result__a"):
+                href = a.get("href", "")
+                if not href:
+                    continue
+                if "uddg=" in href:
+                    parts = href.split("uddg=")
+                    if len(parts) > 1:
+                        href = urllib.parse.unquote(parts[1].split("&")[0])
+                
+                # Clean the URL to prevent encoding issues
+                href = safe_url_cleanup(href)
+                
+                if href.startswith("http") and href not in links:
+                    links.append(href)
 
-        if not links:
-            print("[duck_http] No links found in results")
+            if not links:
+                print("[duck_http] No links found in results")
 
-        return links
+            return links
+    except Exception as e:
+        print(f"Error in duck_http search: {e}")
+        return []
 
 async def use_playwright_search(query: str, engine: str) -> List[str]:
     await rate_limiter.acquire(engine)
@@ -143,6 +173,10 @@ async def use_playwright_search(query: str, engine: str) -> List[str]:
                         parts = href.split("uddg=")
                         if len(parts) > 1:
                             href = urllib.parse.unquote(parts[1].split("&")[0])
+                    
+                    # Clean the URL to prevent encoding issues
+                    href = safe_url_cleanup(href)
+                    
                     if href.startswith("http") and href not in urls:
                         urls.append(href)
                 except Exception as e:
@@ -174,7 +208,7 @@ async def smart_search(query: str, limit: int = 5) -> List[str]:
         except Exception as e:
             print(f"Engine {engine} failed: {e}. Trying next...")
 
-    print("ll engines failed.")
+    print("All engines failed.")
     return []
 
 if __name__ == "__main__":
