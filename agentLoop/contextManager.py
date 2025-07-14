@@ -289,6 +289,13 @@ class ExecutionContextManager:
             except Exception as e:
                 print(f"❌ Code execution failed: {e}")
         
+        # FORMATTERAGENT FILE SAVING CHECK
+        if agent_type == "FormatterAgent" and output and isinstance(output, dict):
+            try:
+                self._save_formatter_report(step_id, output, writes)
+            except Exception as e:
+                print(f"❌ FormatterAgent file saving failed: {e}")
+        
         # EXTRACTION LOGIC - Handle both code execution results AND direct agent outputs
         globals_schema = self.plan_graph.graph['globals_schema']
         
@@ -340,6 +347,139 @@ class ExecutionContextManager:
         
         print(f"✅ {step_id} completed successfully")
         self._auto_save()
+
+    def _save_formatter_report(self, step_id: str, output: dict, writes: list):
+        """Save FormatterAgent reports to media folder"""
+        session_id = self.plan_graph.graph['session_id']
+        original_query = self.plan_graph.graph['original_query']
+        
+        # Create session directory
+        output_dir = Path(f"media/generated/{session_id}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Look for formatted output fields
+        saved_files = []
+        
+        # First try exact matches from writes
+        for write_key in writes:
+            if write_key in output and output[write_key]:
+                content = output[write_key]
+                
+                # Determine file extension based on format
+                if output.get("final_format") == "html":
+                    extension = "html"
+                    filename = f"report_{step_id}.html"
+                elif output.get("final_format") == "markdown":
+                    extension = "md"
+                    filename = f"report_{step_id}.md"
+                else:
+                    # Default to HTML if format not specified
+                    extension = "html"
+                    filename = f"report_{step_id}.html"
+                
+                # Create safe filename
+                safe_filename = Path(filename).name
+                filepath = output_dir / safe_filename
+                
+                try:
+                    # Write file with UTF-8 encoding
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    
+                    # Track file size
+                    file_size = len(content.encode('utf-8'))
+                    saved_files.append({
+                        "filename": safe_filename,
+                        "filepath": str(filepath),
+                        "size_bytes": file_size,
+                        "format": output.get("final_format", "html")
+                    })
+                    
+                    print(f"💾 Saved FormatterAgent report: {safe_filename} ({file_size:,} bytes)")
+                    
+                except Exception as e:
+                    print(f"❌ Failed to save {safe_filename}: {str(e)}")
+        
+        # If no files saved from writes, look for common FormatterAgent output patterns
+        if not saved_files:
+            # Look for common FormatterAgent output field patterns
+            formatter_patterns = [
+                f"formatted_report_{step_id}",
+                f"formatted_html_{step_id}",
+                f"formatted_output_{step_id}",
+                "formatted_report",
+                "formatted_html",
+                "formatted_output"
+            ]
+            
+            for pattern in formatter_patterns:
+                if pattern in output and output[pattern]:
+                    content = output[pattern]
+                    
+                    # Determine file extension based on format
+                    if output.get("final_format") == "html":
+                        extension = "html"
+                        filename = f"report_{step_id}.html"
+                    elif output.get("final_format") == "markdown":
+                        extension = "md"
+                        filename = f"report_{step_id}.md"
+                    else:
+                        # Default to HTML if format not specified
+                        extension = "html"
+                        filename = f"report_{step_id}.html"
+                    
+                    # Create safe filename
+                    safe_filename = Path(filename).name
+                    filepath = output_dir / safe_filename
+                    
+                    try:
+                        # Write file with UTF-8 encoding
+                        with open(filepath, 'w', encoding='utf-8') as f:
+                            f.write(content)
+                        
+                        # Track file size
+                        file_size = len(content.encode('utf-8'))
+                        saved_files.append({
+                            "filename": safe_filename,
+                            "filepath": str(filepath),
+                            "size_bytes": file_size,
+                            "format": output.get("final_format", "html")
+                        })
+                        
+                        print(f"💾 Saved FormatterAgent report: {safe_filename} ({file_size:,} bytes)")
+                        break  # Found and saved, no need to check other patterns
+                        
+                    except Exception as e:
+                        print(f"❌ Failed to save {safe_filename}: {str(e)}")
+        
+        # Also save a summary JSON file with metadata
+        if saved_files:
+            summary_data = {
+                "session_id": session_id,
+                "step_id": step_id,
+                "original_query": original_query,
+                "timestamp": datetime.utcnow().isoformat(),
+                "saved_files": saved_files,
+                "formatter_output": {
+                    "final_format": output.get("final_format"),
+                    "reasoning": output.get("reasoning"),
+                    "call_self": output.get("call_self", False)
+                }
+            }
+            
+            summary_file = output_dir / f"report_summary_{step_id}.json"
+            try:
+                with open(summary_file, 'w', encoding='utf-8') as f:
+                    json.dump(summary_data, f, indent=2, ensure_ascii=False)
+                print(f"💾 Saved report summary: {summary_file.name}")
+            except Exception as e:
+                print(f"❌ Failed to save summary: {str(e)}")
+        else:
+            print(f"⚠️  No FormatterAgent output found to save for step {step_id}")
+            print(f"   Available keys: {list(output.keys())}")
+            print(f"   Writes: {writes}")
+        
+        return saved_files
 
     def mark_failed(self, step_id, error=None):
         """Mark step as failed"""
