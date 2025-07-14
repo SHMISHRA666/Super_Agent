@@ -3,7 +3,7 @@ import asyncio
 import traceback
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from bs4 import BeautifulSoup
-from readability import Document
+from readability.readability import Document
 import trafilatura
 import random
 from pathlib import Path
@@ -61,6 +61,24 @@ def safe_text_cleanup(text: str) -> str:
             '\u200b': '',   # Zero-width space
             '\u200c': '',   # Zero-width non-joiner
             '\u200d': '',   # Zero-width joiner
+            '\u2028': '\n', # Line separator
+            '\u2029': '\n', # Paragraph separator
+            '\u00ad': '',   # Soft hyphen
+            '\u2060': '',   # Word joiner
+            '\u2061': '',   # Function application
+            '\u2062': '',   # Invisible times
+            '\u2063': '',   # Invisible separator
+            '\u2064': '',   # Invisible plus
+            '\u2066': '',   # Left-to-right isolate
+            '\u2067': '',   # Right-to-left isolate
+            '\u2068': '',   # First strong isolate
+            '\u2069': '',   # Pop directional isolate
+            '\u206a': '',   # Inhibit symmetric swapping
+            '\u206b': '',   # Activate symmetric swapping
+            '\u206c': '',   # Inhibit arabic form shaping
+            '\u206d': '',   # Activate arabic form shaping
+            '\u206e': '',   # National digit shapes
+            '\u206f': '',   # Nominal digit shapes
         }
         
         for old, new in replacements.items():
@@ -73,7 +91,8 @@ def safe_text_cleanup(text: str) -> str:
         # Clean up whitespace
         text = ' '.join(text.split())
         
-        return text
+        # Final safety check: ensure UTF-8 encoding
+        return text.encode('utf-8', errors='replace').decode('utf-8')
         
     except Exception as e:
         print(f"Warning: Text cleanup failed: {e}")

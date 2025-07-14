@@ -24,6 +24,59 @@ import pymupdf4llm
 import re
 import base64 # ollama needs base64-encoded-image
 import asyncio
+import codecs
+
+# Force UTF-8 encoding for the entire process
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+os.environ['PYTHONUTF8'] = '1'
+
+# Set default encoding for all file operations
+import locale
+try:
+    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+except:
+    try:
+        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+    except:
+        pass  # Fallback to system default
+
+# Configure stdout/stderr for UTF-8
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+
+def safe_str(obj) -> str:
+    """Safely convert any object to string, handling Unicode characters"""
+    try:
+        if isinstance(obj, str):
+            # Normalize Unicode and replace problematic characters
+            import unicodedata
+            text = unicodedata.normalize('NFKC', obj)
+            
+            # Replace problematic Unicode characters
+            replacements = {
+                '\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
+                '\u2013': '-', '\u2014': '--', '\u2026': '...',
+                '\u00a0': ' ', '\u200b': '', '\u200c': '', '\u200d': ''
+            }
+            
+            for old, new in replacements.items():
+                text = text.replace(old, new)
+            
+            # Remove control characters except newlines and tabs
+            import re
+            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+            
+            # Final safety check: ensure UTF-8 encoding
+            return text.encode('utf-8', errors='replace').decode('utf-8')
+        return str(obj).encode('utf-8', errors='replace').decode('utf-8')
+    except UnicodeEncodeError:
+        try:
+            return obj.encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            return "[encoding error]"
 
 
 

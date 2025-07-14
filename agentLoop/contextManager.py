@@ -149,10 +149,19 @@ class ExecutionContextManager:
                 
                 enhanced_code = globals_injection + code
                 
+                # Create the proper output_data structure for run_user_code
+                output_data = {
+                    "code_variants": {
+                        code_key: enhanced_code
+                    }
+                }
+                
                 result = await run_user_code(
-                    enhanced_code,
+                    output_data,
                     self.multi_mcp if hasattr(self, 'multi_mcp') else None,
-                    self.plan_graph.graph['session_id']
+                    self.plan_graph.graph['session_id'],
+                    globals_schema,
+                    {}  # inputs
                 )
                 
                 if result.get("status") == "success":

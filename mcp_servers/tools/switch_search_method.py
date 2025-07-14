@@ -191,6 +191,37 @@ async def use_playwright_search(query: str, engine: str) -> List[str]:
 
     return urls
 
+def safe_str(obj) -> str:
+    """Safely convert any object to string, handling Unicode characters"""
+    try:
+        if isinstance(obj, str):
+            # Normalize Unicode and replace problematic characters
+            import unicodedata
+            text = unicodedata.normalize('NFKC', obj)
+            
+            # Replace problematic Unicode characters
+            replacements = {
+                '\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
+                '\u2013': '-', '\u2014': '--', '\u2026': '...',
+                '\u00a0': ' ', '\u200b': '', '\u200c': '', '\u200d': ''
+            }
+            
+            for old, new in replacements.items():
+                text = text.replace(old, new)
+            
+            # Remove control characters except newlines and tabs
+            import re
+            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+            
+            # Final safety check: ensure UTF-8 encoding
+            return text.encode('utf-8', errors='replace').decode('utf-8')
+        return str(obj).encode('utf-8', errors='replace').decode('utf-8')
+    except UnicodeEncodeError:
+        try:
+            return obj.encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            return "[encoding error]"
+
 async def smart_search(query: str, limit: int = 5) -> List[str]:
     random.shuffle(SEARCH_ENGINES)
 
@@ -202,11 +233,13 @@ async def smart_search(query: str, limit: int = 5) -> List[str]:
             else:
                 results = await use_playwright_search(query, engine)
             if results:
-                return results[:limit]
+                # Clean all URLs to prevent encoding issues
+                cleaned_results = [safe_str(url) for url in results[:limit]]
+                return cleaned_results
             else:
                 print(f"No results from {engine}. Trying next...")
         except Exception as e:
-            print(f"Engine {engine} failed: {e}. Trying next...")
+            print(f"Engine {engine} failed: {safe_str(e)}. Trying next...")
 
     print("All engines failed.")
     return []

@@ -96,6 +96,10 @@ async def execute_python_code_variant(code: str, multi_mcp, session_id: str, glo
     """
     start_time = time.perf_counter()
     
+    print(f"\n===== [DEBUG] Starting execution of code variant =====\n")
+    print(f"Original code:\n{code}")
+    print(f"\n===== [END DEBUG] =====\n")
+    
     # Setup execution environment
     output_dir = Path(f"media/generated/{session_id}")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -105,6 +109,11 @@ async def execute_python_code_variant(code: str, multi_mcp, session_id: str, glo
     if multi_mcp:
         for tool in multi_mcp.get_all_tools():
             tool_funcs[tool.name] = make_tool_proxy(tool.name, multi_mcp)
+    
+    print(f"\n===== [DEBUG] Available tools =====\n")
+    for tool_name in tool_funcs.keys():
+        print(f"  - {tool_name}")
+    print(f"\n===== [END DEBUG] =====\n")
     
     # Build safe execution context
     safe_globals = {
@@ -146,10 +155,18 @@ async def execute_python_code_variant(code: str, multi_mcp, session_id: str, glo
             def visit_Call(self, node):
                 self.generic_visit(node)
                 if isinstance(node.func, ast.Name) and node.func.id in tool_funcs:
+                    # Always wrap tool calls in await since they are async functions
                     return ast.Await(value=node)
                 return node
         
         async_func = AwaitTransformer().visit(async_func)
+
+        # DEBUG: Print the transformed code
+        import astor
+        transformed_code = astor.to_source(async_func)
+        print("\n===== [DEBUG] Transformed async function code =====\n")
+        print(transformed_code)
+        print("\n===== [END DEBUG] =====\n")
         
         # Create module with async function
         module = ast.Module(body=[async_func], type_ignores=[])
@@ -162,6 +179,11 @@ async def execute_python_code_variant(code: str, multi_mcp, session_id: str, glo
         
         # Execute the async function
         result = await local_vars['__async_exec']()
+        
+        # DEBUG: Print the result
+        print(f"\n===== [DEBUG] Execution result =====\n")
+        print(f"Result: {result}")
+        print(f"\n===== [END DEBUG] =====\n")
         
         # Find created files
         created_files = []
@@ -181,6 +203,13 @@ async def execute_python_code_variant(code: str, multi_mcp, session_id: str, glo
         }
         
     except Exception as e:
+        print(f"\n===== [DEBUG] Execution failed with error =====\n")
+        print(f"Error: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}")
+        print(f"\n===== [END DEBUG] =====\n")
+        
         return {
             "status": "failed",
             "result": {},

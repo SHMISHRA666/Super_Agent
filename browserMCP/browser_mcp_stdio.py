@@ -1,6 +1,13 @@
 import os
 import sys
 import logging
+import codecs
+
+# Force UTF-8 encoding for the entire process
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+# Force UTF-8 encoding for the process but preserve stdout/stderr for MCP
+# Don't replace sys.stdout/stderr as it breaks MCP stdio transport
 
 # More aggressive logging suppression - MUST be done BEFORE importing controller
 logging.basicConfig(level=logging.CRITICAL)
@@ -25,6 +32,37 @@ from browserMCP.mcp_tools import get_tools, handle_tool_call
 # Initialize FastMCP server
 mcp = FastMCP("browser-automation", timeout=30)
 
+def safe_str(obj) -> str:
+    """Safely convert any object to string, handling Unicode characters"""
+    try:
+        if isinstance(obj, str):
+            # Normalize Unicode and replace problematic characters
+            import unicodedata
+            text = unicodedata.normalize('NFKC', obj)
+            
+            # Replace problematic Unicode characters
+            replacements = {
+                '\u201c': '"', '\u201d': '"', '\u2018': "'", '\u2019': "'",
+                '\u2013': '-', '\u2014': '--', '\u2026': '...',
+                '\u00a0': ' ', '\u200b': '', '\u200c': '', '\u200d': ''
+            }
+            
+            for old, new in replacements.items():
+                text = text.replace(old, new)
+            
+            # Remove control characters except newlines and tabs
+            import re
+            text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+            
+            # Final safety check: ensure UTF-8 encoding
+            return text.encode('utf-8', errors='replace').decode('utf-8')
+        return str(obj).encode('utf-8', errors='replace').decode('utf-8')
+    except UnicodeEncodeError:
+        try:
+            return obj.encode('utf-8', errors='replace').decode('utf-8')
+        except:
+            return "[encoding error]"
+
 # Helper function to create a generic tool wrapper
 async def generic_tool_handler(tool_name: str, ctx: Context, **kwargs) -> str:
     """Generic handler that delegates to mcp_tools"""
@@ -38,13 +76,13 @@ async def generic_tool_handler(tool_name: str, ctx: Context, **kwargs) -> str:
         # Extract text from result
         if isinstance(result, list) and len(result) > 0:
             if isinstance(result[0], dict) and "text" in result[0]:
-                return result[0]["text"]
+                return safe_str(result[0]["text"])
             else:
-                return str(result[0])
-        return str(result)
+                return safe_str(result[0])
+        return safe_str(result)
         
     except Exception as e:
-        return f"❌ Error executing tool '{tool_name}': {str(e)}"
+        return f"❌ Error executing tool '{tool_name}': {safe_str(e)}"
 
 # Now create individual tool functions - this is verbose but works with FastMCP
 @mcp.tool()

@@ -32,18 +32,18 @@ persona:
 # mcp_servers:
 #   - id: math
 #     script: mcp_server_1.py
-#     cwd: C:/My data/resume_learning_material/resume/EAG_V1/S16/S16 Share-1
+#     cwd: C:/My data/resume_learning_material/resume/EAG_V1/S16/Super_agent
 #     description: "Most used Math tools, including special string-int conversions, fibonacci, python sandbox, shell and sql related tools"
 #   - id: documents
 #     script: mcp_server_2.py
-#     cwd: C:/My data/resume_learning_material/resume/EAG_V1/S16/S16 Share-1
+#     cwd: C:/My data/resume_learning_material/resume/EAG_V1/S16/Super_agent
 #     description: "Load, search and extract within webpages, local PDFs or other documents. Web and document specialist"
 #   - id: websearch
 #     script: mcp_server_3.py
-#     cwd: C:/My data/resume_learning_material/resume/EAG_V1/S16/S16 Share-1
+#     cwd: C:/My data/resume_learning_material/resume/EAG_V1/S16/Super_agent
 #     description: "Webtools to search internet for queries and fetch content for a specific web page"
   # - id: memory
   #   script: modules/mcp_server_memory.py
-  #   cwd: C:/My data/resume_learning_material/resume/EAG_V1/S16/S16 Share-1
+  #   cwd: C:/My data/resume_learning_material/resume/EAG_V1/S16/Super_agent
   #   description: "Tools to get Agent-User Conversation History (current session or all historical)"
 
