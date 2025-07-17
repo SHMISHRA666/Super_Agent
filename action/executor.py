@@ -123,7 +123,8 @@ async def execute_python_code_variant(code: str, multi_mcp, session_id: str, glo
         'session_id': session_id,
         'output_dir': str(output_dir),
         'inputs': inputs or {},
-        'globals_schema': globals_schema or {}
+        'globals_schema': globals_schema or {},
+        'previous_output': globals_schema or {}  # ✅ FIXED: Add previous_output for code that references it
     }
     
     # Add globals_schema variables

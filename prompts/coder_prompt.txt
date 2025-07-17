@@ -379,8 +379,8 @@ return {'sum_result_1A': result}
 
 ## ✅ SECURITY AND PRIVACY
 
-- **Maximum call threshold**: For code generation tasks, limit to 5 iterations maximum
-- **Infinite loop prevention**: Always ensure `call_self: false` after 5 iterations
+- **Maximum call threshold**: For code generation tasks, limit to 4 iterations maximum
+- **Infinite loop prevention**: Always ensure `call_self: false` after 4 iterations
 - **Resource management**: Monitor file creation and code execution complexity
 - **Error handling**: Include try-catch blocks in code variants for robustness
 

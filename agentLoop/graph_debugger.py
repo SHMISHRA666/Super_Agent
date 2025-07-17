@@ -195,14 +195,19 @@ class GraphDebugger:
     
     def _save_debug_data(self, node_id: str, inputs: Dict, outputs: List[Dict]):
         """Save exact input/output to temp.json for detailed analysis"""
+        # Build iterations list dynamically to support up to 4 iterations
+        iterations = []
+        for i, output in enumerate(outputs, 1):
+            if output is not None:
+                iterations.append({"iteration": i, "output": output})
+            else:
+                iterations.append(None)
+        
         debug_data = {
             "timestamp": datetime.now().isoformat(),
             "node_id": node_id,
-            "iterations": [
-                {"iteration": 1, "output": outputs[0]},
-                {"iteration": 2, "output": outputs[1]} if len(outputs) > 1 else None
-            ],
-            "final_output": outputs[-1]  # Last iteration
+            "iterations": iterations,
+            "final_output": outputs[-1] if outputs else None  # Last iteration
         }
         
         # Save to memory/temp.json
@@ -304,33 +309,53 @@ class GraphDebugger:
                 self._show_output_comparison(node_id, old_output, new_output)
                 
             if result["output"].get("call_self"):
+                # Initialize iteration tracking
+                max_iterations = 4
+                current_iteration = 1
+                iterations = []
+                current_output = result["output"]
+                current_instruction = None
+                current_iteration_context = None
+                
                 # Store first iteration
-                iterations = [{"iteration": 1, "output": result["output"]}]
+                iterations.append({"iteration": 1, "output": current_output})
                 
-                # Run second iteration
-                second_result = await self.agent_runner.run_agent(node_data["agent"], {
-                    "step_id": node_id,
-                    "agent_prompt": result["output"].get("next_instruction", "Continue the task"),
-                    "reads": node_data.get("reads", []),
-                    "writes": node_data.get("writes", []),
-                    "inputs": inputs,
-                    "previous_output": result["output"],
-                    "iteration_context": result["output"].get("iteration_context", {})
-                })
+                # Execute iterations loop
+                while current_iteration < max_iterations:
+                    # Prepare for next iteration
+                    current_instruction = current_output.get("next_instruction", "Continue the task")
+                    current_iteration_context = current_output.get("iteration_context", {})
+                    current_iteration += 1
+                    
+                    # Execute next iteration
+                    next_result = await self.agent_runner.run_agent(node_data["agent"], {
+                        "step_id": node_id,
+                        "agent_prompt": current_instruction,
+                        "reads": node_data.get("reads", []),
+                        "writes": node_data.get("writes", []),
+                        "inputs": inputs,
+                        "previous_output": current_output,
+                        "iteration_context": current_iteration_context
+                    })
+                    
+                    if next_result["success"]:
+                        current_output = next_result["output"]
+                        iterations.append({"iteration": current_iteration, "output": current_output})
+                        
+                        # Check if we should continue to next iteration
+                        if not current_output.get("call_self"):
+                            break
+                    else:
+                        # If iteration fails, stop and use previous output
+                        iterations.append(None)
+                        break
                 
-                if second_result["success"]:
-                    iterations.append({"iteration": 2, "output": second_result["output"]})
-                    final_output = second_result["output"]
-                else:
-                    iterations.append(None)
-                    final_output = result["output"]
-                
-                # Store both iterations
+                # Store all iterations
                 debug_data = {
                     "timestamp": datetime.now().isoformat(),
                     "node_id": node_id,
                     "iterations": iterations,
-                    "final_output": final_output
+                    "final_output": current_output
                 }
                 
                 # Save to temp.json

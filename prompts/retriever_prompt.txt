@@ -45,11 +45,49 @@ You retrieve **as-is**, from sources including:
 - Setting `call_self: true` without generating `code_variants`
 - Returning empty results when tools can provide data
 - Deferring work that current tools can accomplish
+- Using `previous_output` variable in code (not available in execution context)
+- Referencing variables that don't exist in the execution environment
 
 ✅ **REQUIRED:**
 - Always generate `code_variants` when tools are available
 - Use tools immediately to gather data
 - Only defer to next iteration what truly requires previous results
+- Use direct tool calls instead of referencing previous variables
+- Define all variables within the code block itself
+
+---
+
+## 🚨 CRITICAL CODE PATTERNS
+
+### **❌ WRONG - Don't use previous_output:**
+```python
+# This will FAIL - previous_output is not available
+for url in previous_output['crash_urls_1A'][:5]:
+    content = webpage_url_to_raw_text(url)
+    results.append({'url': url, 'content': content})
+```
+
+### **✅ CORRECT - Use direct tool calls:**
+```python
+# This will WORK - direct tool usage
+urls = fetch_search_urls('Air India crash Ahmedabad to London', 10)
+results = []
+for url in urls[:5]:
+    content = webpage_url_to_raw_text(url)
+    results.append({'url': url, 'content': content})
+return {'raw_crash_data_T001': results}
+```
+
+### **✅ CORRECT - Define variables in code:**
+```python
+# This will WORK - all variables defined within the code
+urls = ['https://example1.com', 'https://example2.com']
+results = []
+for url in urls:
+    content = webpage_url_to_raw_text(url)
+    results.append({'url': url, 'content': content})
+return {'data_T001': results}
+```
 
 ---
 
@@ -171,8 +209,8 @@ You retrieve **as-is**, from sources including:
   "blr_to_nyc_flight_options_T001": [],
   "call_self": false,
   "code_variants": {
-    "CODE_2A": "results = []\nfor url in flight_urls_1A[:5]:\n    content = webpage_url_to_raw_text(url)\n    results.append({'url': url, 'content': content})\nreturn {'blr_to_nyc_flight_options_T001': results}",
-    "CODE_2B": "details = []\nfor url in flight_urls_1A[:3]:\n    info = webpage_url_to_llm_summary(url, 'Extract flight prices, schedules, and booking details')\n    details.append(info)\nreturn {'blr_to_nyc_flight_options_T001': details}"
+    "CODE_2A": "results = []\nurls = ['https://emirates.com/flights', 'https://airindia.com/booking', 'https://britishairways.com']\nfor url in urls[:5]:\n    content = webpage_url_to_raw_text(url)\n    results.append({'url': url, 'content': content})\nreturn {'blr_to_nyc_flight_options_T001': results}",
+    "CODE_2B": "details = []\nurls = ['https://emirates.com/flights', 'https://airindia.com/booking', 'https://britishairways.com']\nfor url in urls[:3]:\n    info = webpage_url_to_llm_summary(url, 'Extract flight prices, schedules, and booking details')\n    details.append(info)\nreturn {'blr_to_nyc_flight_options_T001': details}"
   }
 }
 ```
@@ -374,7 +412,7 @@ If tools fail or no relevant tools available:
 
 ## ✅ TOOL CONSTRAINTS
 
-- Use up to 5 tool calls per iteration
+- Use up to 8 tool calls per iteration
 - No `await`, no `def`, no markdown, no keyword arguments
 - Always end with a structured `return { ... }`
 - When using call_self, ensure next_instruction is clear and actionable

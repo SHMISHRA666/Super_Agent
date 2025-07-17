@@ -306,11 +306,46 @@ class ExecutionContextManager:
                 # Strategy 1: Extract from code execution results (RetrieverAgent, CoderAgent)
                 if execution_result and execution_result.get("status") == "success":
                     result_data = execution_result.get("result", {})
+                    print(f"🔍 DEBUG: Checking result_data for {write_key}")
+                    print(f"🔍 DEBUG: result_data keys: {list(result_data.keys())}")
                     
                     if write_key in result_data:
-                        globals_schema[write_key] = result_data[write_key]
-                        print(f"✅ Extracted {write_key} = {result_data[write_key]}")
-                        extracted = True
+                        value = result_data[write_key]
+                        print(f"🔍 DEBUG: Found {write_key} in result_data")
+                        print(f"🔍 DEBUG: value type: {type(value)}")
+                        print(f"🔍 DEBUG: value: {value}")
+                        
+                        # Handle complex search result structures
+                        if isinstance(value, dict) and 'content' in value:
+                            # This is likely a search result with content structure
+                            try:
+                                # Extract the text content and parse it as JSON
+                                content_list = value.get('content', [])
+                                if content_list and isinstance(content_list[0], dict) and 'text' in content_list[0]:
+                                    text_content = content_list[0]['text']
+                                    # Try to parse as JSON (for search results)
+                                    try:
+                                        import json
+                                        parsed_data = json.loads(text_content)
+                                        globals_schema[write_key] = parsed_data
+                                        print(f"✅ Extracted {write_key} = {len(parsed_data)} items (parsed from content)")
+                                        extracted = True
+                                    except json.JSONDecodeError:
+                                        # If not JSON, use the raw text
+                                        globals_schema[write_key] = text_content
+                                        print(f"✅ Extracted {write_key} = {text_content[:100]}... (raw text)")
+                                        extracted = True
+                            except Exception as e:
+                                print(f"⚠️  Error parsing content structure: {e}")
+                                # Fallback to original value
+                                globals_schema[write_key] = value
+                                print(f"✅ Extracted {write_key} = {value} (fallback)")
+                                extracted = True
+                        else:
+                            # Direct value extraction
+                            globals_schema[write_key] = value
+                            print(f"✅ Extracted {write_key} = {value}")
+                            extracted = True
                     elif len(result_data) == 1 and len(writes) == 1:
                         key, value = next(iter(result_data.items()))
                         globals_schema[write_key] = value

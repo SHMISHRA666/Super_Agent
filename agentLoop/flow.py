@@ -160,7 +160,7 @@ class AgentLoop4:
         # Get inputs from NetworkX graph
         inputs = context.get_inputs(step_data.get("reads", []))
         
-        # 🔧 HELPER FUNCTION: Build agent input (consistent for both iterations)
+        # 🔧 HELPER FUNCTION: Build agent input (consistent for all iterations)
         def build_agent_input(instruction=None, previous_output=None, iteration_context=None):
             if agent_type == "FormatterAgent":
                 all_globals = context.plan_graph.graph['globals_schema'].copy()
@@ -191,54 +191,61 @@ class AgentLoop4:
                     **({"iteration_context": iteration_context} if iteration_context else {})
                 }
 
-        # Execute first iteration
-        agent_input = build_agent_input()
-        result = await self.agent_runner.run_agent(agent_type, agent_input)
+        # Initialize iteration tracking
+        max_iterations = 8
+        current_iteration = 1
+        iterations_data = []
+        current_output = None
+        current_instruction = None
+        current_iteration_context = None
         
-        if result["success"]:
-            output = result["output"]
+        # Execute iterations loop
+        while current_iteration <= max_iterations:
+            # Build input for current iteration
+            agent_input = build_agent_input(
+                instruction=current_instruction,
+                previous_output=current_output,
+                iteration_context=current_iteration_context
+            )
             
-            # Check for call_self
-            if output.get("call_self"):
+            # Execute current iteration
+            result = await self.agent_runner.run_agent(agent_type, agent_input)
+            
+            if not result["success"]:
+                # If first iteration fails, return the error
+                if current_iteration == 1:
+                    return result
+                else:
+                    # If later iteration fails, return the previous successful result
+                    break
+            
+            current_output = result["output"]
+            iterations_data.append({"iteration": current_iteration, "output": current_output})
+            
+            # Check if we should continue to next iteration
+            if current_output.get("call_self") and current_iteration < max_iterations:
                 # Handle code execution if needed
-                if context._has_executable_code(output):
-                    execution_result = await context._auto_execute_code(step_id, output)
+                if context._has_executable_code(current_output):
+                    execution_result = await context._auto_execute_code(step_id, current_output)
                     if execution_result.get("status") == "success":
                         execution_data = execution_result.get("result", {})
-                        inputs = {**inputs, **execution_data}  # Update inputs for iteration 2
+                        inputs = {**inputs, **execution_data}  # Update inputs for next iteration
                 
-                # Execute second iteration with consistent input structure
-                second_agent_input = build_agent_input(
-                    instruction=output.get("next_instruction", "Continue the task"),
-                    previous_output=output,
-                    iteration_context=output.get("iteration_context", {})
-                )
-                
-                second_result = await self.agent_runner.run_agent(agent_type, second_agent_input)
-                
-                # 💾 CRITICAL: Store iteration data in session
-                iterations_data = [
-                    {"iteration": 1, "output": output}
-                ]
-                
-                if second_result["success"]:
-                    iterations_data.append({"iteration": 2, "output": second_result["output"]})
-                    final_result = second_result
-                else:
-                    iterations_data.append(None)
-                    final_result = result
-                
-                # Store iterations in the node data for session persistence
-                step_data = context.get_step_data(step_id)
-                step_data['iterations'] = iterations_data
-                step_data['call_self_used'] = True
-                step_data['final_iteration_output'] = final_result["output"]
-                
-                return final_result
+                # Prepare for next iteration
+                current_instruction = current_output.get("next_instruction", "Continue the task")
+                current_iteration_context = current_output.get("iteration_context", {})
+                current_iteration += 1
             else:
-                return result
-        else:
-            return result
+                # No more iterations needed or max reached
+                break
+        
+        # Store iterations in the node data for session persistence
+        step_data = context.get_step_data(step_id)
+        step_data['iterations'] = iterations_data
+        step_data['call_self_used'] = len(iterations_data) > 1
+        step_data['final_iteration_output'] = current_output
+        
+        return {"success": True, "output": current_output}
 
     async def _handle_failures(self, context):
         """Handle failures via mid-session replanning"""

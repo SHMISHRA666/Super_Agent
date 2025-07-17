@@ -165,16 +165,31 @@ class MultiMCP:
 
         try:
             content_text = getattr(result, "content", [])[0].text.strip()
-            parsed = json.loads(content_text)
+            
+            # Special handling for search_web_with_text_content
+            if tool_name == "search_web_with_text_content":
+                try:
+                    parsed = json.loads(content_text)
+                    return parsed
+                except json.JSONDecodeError:
+                    # If it's not valid JSON, return the raw text
+                    return content_text
+            
+            # For other tools, try to parse as JSON
+            try:
+                parsed = json.loads(content_text)
 
-            if isinstance(parsed, dict):
-                if "result" in parsed:
-                    return parsed["result"]
-                if len(parsed) == 1:
-                    return next(iter(parsed.values()))
+                if isinstance(parsed, dict):
+                    if "result" in parsed:
+                        return parsed["result"]
+                    if len(parsed) == 1:
+                        return next(iter(parsed.values()))
+                    return parsed
+
                 return parsed
-
-            return parsed
+            except json.JSONDecodeError:
+                # If it's not valid JSON, return the raw text
+                return content_text
         except Exception:
             return result
 
