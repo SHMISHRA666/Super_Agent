@@ -174,24 +174,70 @@ class ExecutionContextManager:
         return {"status": "error", "error": "All code variants failed"}
     
     def _merge_execution_results(self, original_output, execution_result):
-        """Merge execution results into agent output"""
+        """Merge execution results into agent output with enhanced handling"""
         if not isinstance(original_output, dict):
             return original_output
         
         enhanced_output = original_output.copy()
+        
+        # Add execution metadata
         enhanced_output["execution_result"] = execution_result.get("result")
         enhanced_output["execution_status"] = execution_result.get("status")
         enhanced_output["execution_error"] = execution_result.get("error") 
         enhanced_output["execution_time"] = execution_result.get("execution_time")
         enhanced_output["executed_variant"] = execution_result.get("executed_variant")
         
-        # Merge execution results directly
-        if execution_result.get("status") == "success":
+        # IMPROVED: Better handling of execution results
+        if execution_result and execution_result.get("status") == "success":
             result_data = execution_result.get("result", {})
+            
+            # CRITICAL FIX: Extract variables from result_data and merge them at top level
+            # This is the key fix - the variables are in execution_result["result"]
+            if isinstance(result_data, dict) and result_data:
+                print(f"🔄 CRITICAL FIX: Merging variables from result_data to top level")
+                for key, value in result_data.items():
+                    if isinstance(value, (str, int, float, bool, list, dict)):
+                        enhanced_output[key] = value
+                        print(f"🔄 Merged variable {key} = {type(value).__name__}: {value}")
+                    else:
+                        enhanced_output[key] = str(value)
+                        print(f"🔄 Merged variable {key} = str (converted): {str(value)}")
+            
+            # IMPROVED: Handle nested web search results structure
             if isinstance(result_data, dict):
                 for key, value in result_data.items():
-                    if key not in enhanced_output:
-                        enhanced_output[key] = value
+                    # Check if this is a nested web search result structure
+                    if isinstance(value, dict) and 'content' in value and isinstance(value['content'], list):
+                        try:
+                            # Extract the JSON string from content[0]['text']
+                            if value['content'] and len(value['content']) > 0:
+                                text_content = value['content'][0].get('text', '')
+                                if text_content.startswith('[') and text_content.endswith(']'):
+                                    import json
+                                    parsed_data = json.loads(text_content)
+                                    enhanced_output[key] = parsed_data
+                                    print(f"🔄 Merged parsed data for {key}: {len(parsed_data)} items")
+                                else:
+                                    enhanced_output[key] = text_content
+                                    print(f"🔄 Merged text content for {key}: {text_content[:100]}...")
+                            else:
+                                enhanced_output[key] = value
+                                print(f"🔄 Merged nested structure for {key}")
+                        except (json.JSONDecodeError, KeyError, IndexError) as e:
+                            print(f"⚠️  Failed to parse nested structure for {key}: {e}")
+                            enhanced_output[key] = value
+                    else:
+                        # IMPROVED: Ensure we merge the actual value
+                        if isinstance(value, (str, int, float, bool, list, dict)):
+                            enhanced_output[key] = value
+                            print(f"🔄 Merged {key} = {type(value).__name__}: {value}")
+                        else:
+                            enhanced_output[key] = str(value)
+                            print(f"🔄 Merged {key} = str (converted): {str(value)}")
+            else:
+                # Handle non-dict results
+                enhanced_output["execution_result"] = result_data
+                print(f"🔄 Merged execution result: {result_data}")
         
         return enhanced_output
     
@@ -254,7 +300,7 @@ class ExecutionContextManager:
                 self._live_display.start()
     
     async def mark_done(self, step_id, output=None, cost=None, input_tokens=None, output_tokens=None):
-        """Mark step as completed with COMPLETE extraction logic"""
+        """Mark step as completed with IMPROVED extraction logic"""
         node_data = self.plan_graph.nodes[step_id]
         agent_type = node_data.get('agent', '')
         writes = node_data.get("writes", [])
@@ -296,7 +342,7 @@ class ExecutionContextManager:
             except Exception as e:
                 print(f"❌ FormatterAgent file saving failed: {e}")
         
-        # EXTRACTION LOGIC - Handle both code execution results AND direct agent outputs
+        # IMPROVED EXTRACTION LOGIC - Enhanced to handle nested structures
         globals_schema = self.plan_graph.graph['globals_schema']
         
         if writes:
@@ -308,62 +354,237 @@ class ExecutionContextManager:
                     result_data = execution_result.get("result", {})
                     print(f"🔍 DEBUG: Checking result_data for {write_key}")
                     print(f"🔍 DEBUG: result_data keys: {list(result_data.keys())}")
+                    print(f"🔍 DEBUG: result_data type: {type(result_data)}")
+                    print(f"🔍 DEBUG: result_data content: {result_data}")
+                    print(f"🔍 DEBUG: Full execution_result: {execution_result}")
                     
+                    # FIXED: Also check the top-level execution result for direct variable extraction
+                    if not result_data and execution_result:
+                        print(f"🔍 DEBUG: Trying top-level execution_result extraction")
+                        result_data = execution_result
+                        print(f"🔍 DEBUG: Using top-level execution_result as result_data: {result_data}")
+                    
+                    # IMPROVED: Handle nested web search results structure
                     if write_key in result_data:
                         value = result_data[write_key]
-                        print(f"🔍 DEBUG: Found {write_key} in result_data")
-                        print(f"🔍 DEBUG: value type: {type(value)}")
-                        print(f"🔍 DEBUG: value: {value}")
                         
-                        # Handle complex search result structures
-                        if isinstance(value, dict) and 'content' in value:
-                            # This is likely a search result with content structure
+                        # Check if this is a nested web search result structure
+                        if isinstance(value, dict) and 'content' in value and isinstance(value['content'], list):
                             try:
-                                # Extract the text content and parse it as JSON
-                                content_list = value.get('content', [])
-                                if content_list and isinstance(content_list[0], dict) and 'text' in content_list[0]:
-                                    text_content = content_list[0]['text']
-                                    # Try to parse as JSON (for search results)
-                                    try:
+                                # Extract the JSON string from content[0]['text']
+                                if value['content'] and len(value['content']) > 0:
+                                    text_content = value['content'][0].get('text', '')
+                                    if text_content.startswith('[') and text_content.endswith(']'):
                                         import json
                                         parsed_data = json.loads(text_content)
                                         globals_schema[write_key] = parsed_data
-                                        print(f"✅ Extracted {write_key} = {len(parsed_data)} items (parsed from content)")
+                                        print(f"✅ Extracted {write_key} = {len(parsed_data)} items (parsed from nested structure)")
                                         extracted = True
-                                    except json.JSONDecodeError:
-                                        # If not JSON, use the raw text
-                                        globals_schema[write_key] = text_content
-                                        print(f"✅ Extracted {write_key} = {text_content[:100]}... (raw text)")
-                                        extracted = True
-                            except Exception as e:
-                                print(f"⚠️  Error parsing content structure: {e}")
-                                # Fallback to original value
+                            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                                print(f"⚠️  Failed to parse nested structure for {write_key}: {e}")
+                        
+                        # IMPROVED: Handle direct key access with proper value extraction
+                        if not extracted:
+                            # Ensure we're extracting the actual value, not just the structure
+                            if isinstance(value, (str, int, float, bool, list, dict)):
                                 globals_schema[write_key] = value
-                                print(f"✅ Extracted {write_key} = {value} (fallback)")
+                                print(f"✅ Extracted {write_key} = {type(value).__name__} (direct): {value}")
                                 extracted = True
-                        else:
-                            # Direct value extraction
-                            globals_schema[write_key] = value
-                            print(f"✅ Extracted {write_key} = {value}")
+                            else:
+                                # Convert to string if it's not a standard type
+                                globals_schema[write_key] = str(value)
+                                print(f"✅ Extracted {write_key} = str (converted): {str(value)}")
+                                extracted = True
+                    
+                    # Strategy 2: Deep search in nested structures with improved value handling
+                    if not extracted:
+                        def deep_search(data, target_key):
+                            if isinstance(data, dict):
+                                for key, value in data.items():
+                                    if key == target_key:
+                                        return value
+                                    result = deep_search(value, target_key)
+                                    if result is not None:
+                                        return result
+                            elif isinstance(data, list):
+                                for item in data:
+                                    result = deep_search(item, target_key)
+                                    if result is not None:
+                                        return result
+                            return None
+                        
+                        found_value = deep_search(result_data, write_key)
+                        if found_value is not None:
+                            # IMPROVED: Ensure we extract the actual value
+                            if isinstance(found_value, (str, int, float, bool, list, dict)):
+                                globals_schema[write_key] = found_value
+                                print(f"✅ Extracted {write_key} = {type(found_value).__name__} (deep search): {found_value}")
+                            else:
+                                globals_schema[write_key] = str(found_value)
+                                print(f"✅ Extracted {write_key} = str (deep search converted): {str(found_value)}")
                             extracted = True
-                    elif len(result_data) == 1 and len(writes) == 1:
-                        key, value = next(iter(result_data.items()))
-                        globals_schema[write_key] = value
-                        print(f"✅ Extracted {write_key} = {value} (from {key})")
-                        extracted = True
                 
-                # Strategy 2: Extract from direct agent output (ThinkerAgent, DistillerAgent, FormatterAgent)
+                # Strategy 3: Extract from direct agent output with improved value handling
                 if not extracted and output and isinstance(output, dict):
+                    # PRIORITY FIX: Check if the key exists directly in output (after merge from execution)
                     if write_key in output:
-                        globals_schema[write_key] = output[write_key]
-                        print(f"✅ Extracted {write_key} = {output[write_key]} (direct)")
+                        value = output[write_key]
+                        # IMPROVED: Ensure we extract the actual value
+                        if isinstance(value, (str, int, float, bool, list, dict)):
+                            globals_schema[write_key] = value
+                            print(f"✅ Extracted {write_key} = {type(value).__name__} (direct output after merge): {value}")
+                        else:
+                            globals_schema[write_key] = str(value)
+                            print(f"✅ Extracted {write_key} = str (direct output after merge converted): {str(value)}")
                         extracted = True
+                    
+                    # BACKUP: Also check execution_result field in the output (from merge)
+                    elif not extracted and "execution_result" in output and isinstance(output["execution_result"], dict):
+                        exec_result = output["execution_result"]
+                        if write_key in exec_result:
+                            value = exec_result[write_key]
+                            if isinstance(value, (str, int, float, bool, list, dict)):
+                                globals_schema[write_key] = value
+                                print(f"✅ Extracted {write_key} = {type(value).__name__} (from execution_result): {value}")
+                            else:
+                                globals_schema[write_key] = str(value)
+                                print(f"✅ Extracted {write_key} = str (from execution_result converted): {str(value)}")
+                            extracted = True
+                    else:
+                        # Deep search in output with improved value handling
+                        def deep_search_output(data, target_key):
+                            if isinstance(data, dict):
+                                for key, value in data.items():
+                                    if key == target_key:
+                                        return value
+                                    result = deep_search_output(value, target_key)
+                                    if result is not None:
+                                        return result
+                            elif isinstance(data, list):
+                                for item in data:
+                                    result = deep_search_output(item, target_key)
+                                    if result is not None:
+                                        return result
+                            return None
+                        
+                        found_value = deep_search_output(output, write_key)
+                        if found_value is not None:
+                            # IMPROVED: Ensure we extract the actual value
+                            if isinstance(found_value, (str, int, float, bool, list, dict)):
+                                globals_schema[write_key] = found_value
+                                print(f"✅ Extracted {write_key} = {type(found_value).__name__} (deep output search): {found_value}")
+                            else:
+                                globals_schema[write_key] = str(found_value)
+                                print(f"✅ Extracted {write_key} = str (deep output search converted): {str(found_value)}")
+                            extracted = True
                 
-                # Strategy 3: Emergency fallback - try to find any matching data
+                # Strategy 4: Special FormatterAgent pattern matching
+                if not extracted and agent_type == "FormatterAgent" and output:
+                    print(f"🔍 DEBUG: FormatterAgent pattern matching for {write_key}")
+                    print(f"🔍 DEBUG: Available output keys: {list(output.keys())}")
+                    
+                    # Enhanced pattern matching for FormatterAgent
+                    formatter_patterns = [
+                        f"formatted_{write_key}",  # Original pattern
+                        f"formatted_report_{write_key.replace('_T', '_T')}",  # formatted_report_T003
+                        f"formatted_html_{write_key.replace('_T', '_T')}",  # formatted_html_T003
+                        f"formatted_output_{write_key.replace('_T', '_T')}",  # formatted_output_T003
+                        f"formatted_{write_key.replace('_T', '_T')}",  # formatted_T003
+                        f"formatted_report_{step_id}",  # formatted_report_T003
+                        f"formatted_html_{step_id}",  # formatted_html_T003
+                        f"formatted_output_{step_id}",  # formatted_output_T003
+                        f"formatted_{step_id}",  # formatted_T003
+                        "formatted_report",  # Generic formatted_report
+                        "formatted_html",  # Generic formatted_html
+                        "formatted_output",  # Generic formatted_output
+                        "formatted"  # Generic formatted
+                    ]
+                    
+                    print(f"🔍 DEBUG: Trying patterns: {formatter_patterns}")
+                    
+                    # Try each pattern
+                    for pattern in formatter_patterns:
+                        if pattern in output and output[pattern]:
+                            globals_schema[write_key] = output[pattern]
+                            print(f"✅ Extracted {write_key} = {type(output[pattern]).__name__} (formatter pattern: {pattern})")
+                            extracted = True
+                            break
+                        elif pattern in output:
+                            print(f"⚠️  Pattern '{pattern}' found but value is empty")
+                        else:
+                            print(f"❌ Pattern '{pattern}' not found")
+                    
+                    # If no pattern matched, try to find any key containing 'formatted'
+                    if not extracted:
+                        print(f"🔍 DEBUG: Trying fallback search for 'formatted' keys")
+                        for key, value in output.items():
+                            if 'formatted' in key.lower() and value:
+                                globals_schema[write_key] = value
+                                print(f"✅ Extracted {write_key} = {type(value).__name__} (formatter fallback: {key})")
+                                extracted = True
+                                break
+                            elif 'formatted' in key.lower():
+                                print(f"⚠️  Found 'formatted' key '{key}' but value is empty")
+                    
+                    # Final fallback: look for any key that might contain the expected data
+                    if not extracted:
+                        print(f"🔍 DEBUG: Trying comprehensive fallback search")
+                        # Look for keys containing step_id or write_key components
+                        search_terms = [step_id, write_key, write_key.replace('_T', '_T')]
+                        for key, value in output.items():
+                            if value and any(term in key for term in search_terms):
+                                globals_schema[write_key] = value
+                                print(f"✅ Extracted {write_key} = {type(value).__name__} (comprehensive fallback: {key})")
+                                extracted = True
+                                break
+                            elif any(term in key for term in search_terms):
+                                print(f"⚠️  Found matching key '{key}' but value is empty")
+                    
+                    if not extracted:
+                        print(f"❌ No formatter patterns matched for {write_key}")
+                
+                # Strategy 5: Emergency fallback with better debugging and value extraction
                 if not extracted:
                     print(f"⚠️  Could not extract {write_key}")
-                    # Set empty placeholder to prevent downstream errors
-                    globals_schema[write_key] = []
+                    print(f"   Available execution result keys: {list(execution_result.get('result', {}).keys()) if execution_result else []}")
+                    print(f"   Available output keys: {list(output.keys()) if output else []}")
+                    print(f"   Execution result status: {execution_result.get('status') if execution_result else None}")
+                    
+                    # IMPROVED: Use available data instead of empty list
+                    if execution_result and execution_result.get("result"):
+                        result_data = execution_result.get("result", {})
+                        if isinstance(result_data, dict) and result_data:
+                            # Use the first available key as fallback
+                            first_key = next(iter(result_data.keys()), None)
+                            if first_key:
+                                fallback_value = result_data[first_key]
+                                # IMPROVED: Ensure we extract the actual value
+                                if isinstance(fallback_value, (str, int, float, bool, list, dict)):
+                                    globals_schema[write_key] = fallback_value
+                                    print(f"🔄 Fallback: Using {first_key} for {write_key}: {fallback_value}")
+                                else:
+                                    globals_schema[write_key] = str(fallback_value)
+                                    print(f"🔄 Fallback: Using {first_key} for {write_key} (converted): {str(fallback_value)}")
+                                extracted = True
+                    
+                    # IMPROVED: Try to find any meaningful data in output
+                    if not extracted and output and isinstance(output, dict):
+                        for key, value in output.items():
+                            if value and isinstance(value, (str, int, float, bool, list, dict)):
+                                globals_schema[write_key] = value
+                                print(f"🔄 Output fallback: Using {key} for {write_key}: {value}")
+                                extracted = True
+                                break
+                            elif value:
+                                globals_schema[write_key] = str(value)
+                                print(f"🔄 Output fallback: Using {key} for {write_key} (converted): {str(value)}")
+                                extracted = True
+                                break
+                    
+                    if not extracted:
+                        # IMPROVED: Only use empty list as absolute last resort
+                        print(f"❌ No data available for {write_key}, using empty list as last resort")
+                        globals_schema[write_key] = []
         
         # Store results
         node_data['status'] = 'completed'
@@ -534,18 +755,55 @@ class ExecutionContextManager:
         """Get all step data from graph"""
         return self.plan_graph.nodes[step_id]
 
+    def _debug_data_structure(self, data, name="data", max_depth=3, current_depth=0):
+        """Helper method to debug data structures"""
+        if current_depth >= max_depth:
+            return f"{name}: <max depth reached>"
+        
+        if isinstance(data, dict):
+            result = f"{name}: dict with keys {list(data.keys())}"
+            if current_depth < max_depth - 1:
+                for key, value in list(data.items())[:5]:  # Limit to first 5 items
+                    result += f"\n  {key}: {self._debug_data_structure(value, f'{name}.{key}', max_depth, current_depth + 1)}"
+        elif isinstance(data, list):
+            result = f"{name}: list with {len(data)} items"
+            if data and current_depth < max_depth - 1:
+                result += f"\n  First item: {self._debug_data_structure(data[0], f'{name}[0]', max_depth, current_depth + 1)}"
+        else:
+            result = f"{name}: {type(data).__name__} = {str(data)[:100]}"
+        
+        return result
+
     def get_inputs(self, reads):
-        """Get input data from graph globals_schema"""
+        """Get input data from graph globals_schema with improved debugging"""
         inputs = {}
         globals_schema = self.plan_graph.graph['globals_schema']
         
+        print(f"🔍 DEBUG: Getting inputs for reads: {reads}")
+        print(f"🔍 DEBUG: Available globals_schema keys: {list(globals_schema.keys())}")
+        
         for read_key in reads:
             if read_key in globals_schema:
-                inputs[read_key] = globals_schema[read_key]
+                value = globals_schema[read_key]
+                inputs[read_key] = value
+                # IMPROVED: Show actual content for better debugging
+                if isinstance(value, (str, int, float, bool)):
+                    print(f"✅ Found input '{read_key}' = {type(value).__name__}: {value}")
+                elif isinstance(value, list):
+                    print(f"✅ Found input '{read_key}' = list with {len(value)} items: {value[:3] if len(value) > 3 else value}")
+                elif isinstance(value, dict):
+                    print(f"✅ Found input '{read_key}' = dict with keys: {list(value.keys())[:5]}")
+                else:
+                    print(f"✅ Found input '{read_key}' = {type(value).__name__}: {str(value)[:100]}")
             else:
                 print(f"⚠️  Missing dependency: '{read_key}' not found in globals_schema")
                 print(f"📋 Available keys: {list(globals_schema.keys())}")
-                
+                # IMPROVED: Provide more helpful debugging information
+                similar_keys = [key for key in globals_schema.keys() if read_key.lower() in key.lower() or key.lower() in read_key.lower()]
+                if similar_keys:
+                    print(f"💡 Similar keys found: {similar_keys}")
+        
+        print(f"🔍 DEBUG: Final inputs: {list(inputs.keys())}")
         return inputs
 
     def all_done(self):
@@ -628,6 +886,13 @@ class ExecutionContextManager:
     def set_multi_mcp(self, multi_mcp):
         """Set multi_mcp reference for code execution"""
         self.multi_mcp = multi_mcp
+
+    def set_step_output(self, step_id, output_dict):
+        """Set the output for a specific step in the plan graph"""
+        if step_id in self.plan_graph.nodes:
+            self.plan_graph.nodes[step_id]['output'] = output_dict
+        else:
+            print(f"[WARN] Tried to update unknown step ID: {step_id}")
 
     def _auto_save(self):
         """Auto-save graph to disk"""

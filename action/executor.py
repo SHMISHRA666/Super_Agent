@@ -184,6 +184,7 @@ async def execute_python_code_variant(code: str, multi_mcp, session_id: str, glo
         # DEBUG: Print the result
         print(f"\n===== [DEBUG] Execution result =====\n")
         print(f"Result: {result}")
+        print(f"Result type: {type(result)}")
         print(f"\n===== [END DEBUG] =====\n")
         
         # Find created files
@@ -191,13 +192,34 @@ async def execute_python_code_variant(code: str, multi_mcp, session_id: str, glo
         if output_dir.exists():
             created_files = [str(f) for f in output_dir.iterdir() if f.is_file()]
         
-        # Extract result
+        # Ensure result is properly structured
         if result is None:
-            result = {k: v for k, v in local_vars.items() if not k.startswith('__')}
+            result = {}
+        elif not isinstance(result, dict):
+            # Convert non-dict results to dict format
+            result = {"result": result}
+        
+        # Ensure the result has the expected structure for extraction
+        if isinstance(result, dict):
+            # If result has only one key and it matches a common pattern, keep it
+            if len(result) == 1:
+                key, value = next(iter(result.items()))
+                # Keep the structure but ensure it's extractable
+                final_result = result
+            else:
+                # Multiple keys or complex structure - preserve as is
+                final_result = result
+        else:
+            final_result = {"result": result}
+        
+        print(f"\n===== [DEBUG] Final result structure =====\n")
+        print(f"Final result: {final_result}")
+        print(f"Final result keys: {list(final_result.keys()) if isinstance(final_result, dict) else 'Not a dict'}")
+        print(f"\n===== [END DEBUG] =====\n")
         
         return {
             "status": "success",
-            "result": result,
+            "result": final_result,
             "created_files": created_files,
             "execution_time": time.perf_counter() - start_time,
             "error": None

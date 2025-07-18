@@ -32,6 +32,8 @@ class AgentLoop4:
             )
             if file_result["success"]:
                 file_profiles = file_result["output"]
+                # Store the result in the plan graph (for file profiling)
+                # Note: This is a special case as it's not part of the main plan graph
 
         # Phase 2: Planning with AgentRunner
         plan_result = await self.agent_runner.run_agent(
@@ -47,6 +49,9 @@ class AgentLoop4:
 
         if not plan_result["success"]:
             raise RuntimeError(f"Planning failed: {plan_result['error']}")
+
+        # Store the planning result (this is the initial planning phase)
+        # Note: This is stored separately as it's not part of the execution plan graph
 
         # Check if plan_graph exists
         if 'plan_graph' not in plan_result['output']:
@@ -153,12 +158,17 @@ class AgentLoop4:
             console.print("🎉 All tasks completed!")
 
     async def _execute_step(self, step_id, context):
-        """Execute a single step with call_self support"""
+        """Execute a single step with call_self support and improved data flow"""
         step_data = context.get_step_data(step_id)
         agent_type = step_data["agent"]
         
-        # Get inputs from NetworkX graph
+        # Get inputs from NetworkX graph with improved debugging
         inputs = context.get_inputs(step_data.get("reads", []))
+        
+        print(f"🔍 DEBUG: Executing {step_id} ({agent_type})")
+        print(f"🔍 DEBUG: Reads: {step_data.get('reads', [])}")
+        print(f"🔍 DEBUG: Writes: {step_data.get('writes', [])}")
+        print(f"🔍 DEBUG: Inputs received: {list(inputs.keys())}")
         
         # 🔧 HELPER FUNCTION: Build agent input (consistent for all iterations)
         def build_agent_input(instruction=None, previous_output=None, iteration_context=None):
@@ -192,7 +202,7 @@ class AgentLoop4:
                 }
 
         # Initialize iteration tracking
-        max_iterations = 8
+        max_iterations = 20
         current_iteration = 1
         iterations_data = []
         current_output = None
@@ -208,35 +218,48 @@ class AgentLoop4:
                 iteration_context=current_iteration_context
             )
             
+            print(f"🔍 DEBUG: Running {agent_type} iteration {current_iteration}")
+            print(f"🔍 DEBUG: Agent input keys: {list(agent_input.keys())}")
+            print(f"🔍 DEBUG: Inputs data: {list(inputs.keys())}")
+            
+            # Debug input data structure for complex inputs
+            for key, value in inputs.items():
+                if isinstance(value, (dict, list)) and len(str(value)) > 100:
+                    print(f"📊 Input '{key}' structure: {context._debug_data_structure(value, key, max_depth=2)}")
+            
             # Execute current iteration
             result = await self.agent_runner.run_agent(agent_type, agent_input)
             
             if not result["success"]:
-                # If first iteration fails, return the error
-                if current_iteration == 1:
-                    return result
-                else:
-                    # If later iteration fails, return the previous successful result
-                    break
+                print(f"❌ {agent_type} iteration {current_iteration} failed: {result.get('error', 'Unknown error')}")
+                break
             
+            # Store the result in the plan graph
+            if result["success"]:
+                context.set_step_output(step_id, result["output"])
+            
+            # Update iteration data
             current_output = result["output"]
-            iterations_data.append({"iteration": current_iteration, "output": current_output})
+            current_iteration += 1
             
-            # Check if we should continue to next iteration
-            if current_output.get("call_self") and current_iteration < max_iterations:
-                # Handle code execution if needed
-                if context._has_executable_code(current_output):
-                    execution_result = await context._auto_execute_code(step_id, current_output)
-                    if execution_result.get("status") == "success":
-                        execution_data = execution_result.get("result", {})
-                        inputs = {**inputs, **execution_data}  # Update inputs for next iteration
+            # Check for call_self flag
+            if current_output and isinstance(current_output, dict):
+                call_self = current_output.get("call_self", False)
+                if not call_self:
+                    print(f"✅ {agent_type} completed after {current_iteration} iterations")
+                    break
                 
-                # Prepare for next iteration
-                current_instruction = current_output.get("next_instruction", "Continue the task")
-                current_iteration_context = current_output.get("iteration_context", {})
-                current_iteration += 1
-            else:
-                # No more iterations needed or max reached
+                # Update instruction and context for next iteration
+                current_instruction = current_output.get("next_instruction", current_instruction)
+                current_iteration_context = current_output.get("iteration_context", current_iteration_context)
+                
+                print(f"🔄 {agent_type} calling self for iteration {current_iteration}")
+                print(f"🔄 Next instruction: {current_instruction}")
+                print(f"🔄 Iteration context: {current_iteration_context}")
+            
+            # Safety check to prevent infinite loops
+            if current_iteration > max_iterations:
+                print(f"⚠️  {agent_type} reached max iterations ({max_iterations}), stopping")
                 break
         
         # Store iterations in the node data for session persistence

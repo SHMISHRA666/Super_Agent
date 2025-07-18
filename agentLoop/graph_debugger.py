@@ -289,6 +289,7 @@ class GraphDebugger:
         
         # Update the graph with new results
         if result["success"]:
+            self.context.set_step_output(node_id, result["output"])
             self.context.mark_done(node_id, result["output"])
             new_output = result["output"]
             
@@ -302,7 +303,7 @@ class GraphDebugger:
                 border_style="green"
             ))
 
-            MAX_ITERATIONS = 4
+            MAX_ITERATIONS = 20
             
             # Show comparison if requested
             if show_comparison and old_output:
@@ -310,7 +311,7 @@ class GraphDebugger:
                 
             if result["output"].get("call_self"):
                 # Initialize iteration tracking
-                max_iterations = 4
+                max_iterations = 20
                 current_iteration = 1
                 iterations = []
                 current_output = result["output"]
@@ -339,6 +340,7 @@ class GraphDebugger:
                     })
                     
                     if next_result["success"]:
+                        self.context.set_step_output(node_id, next_result["output"])
                         current_output = next_result["output"]
                         iterations.append({"iteration": current_iteration, "output": current_output})
                         
