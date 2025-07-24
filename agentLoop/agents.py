@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Optional
 from agentLoop.model_manager import ModelManager
 from utils.json_parser import parse_llm_json
-from utils.utils import log_step, log_error
+from utils.utils import log_step, log_error, append_step_log
 from PIL import Image
 import os
+from datetime import datetime
 
 class AgentRunner:
     def __init__(self, multi_mcp):
@@ -16,6 +17,9 @@ class AgentRunner:
         config_path = Path("config/agent_config.yaml")
         with open(config_path, "r") as f:
             self.agent_configs = yaml.safe_load(f)["agents"]
+        
+        # Track the last agent type for self-call detection
+        self.last_agent_type = None
     
     def calculate_cost(self, input_text: str, output_text: str) -> dict:
         """Calculate cost and token usage"""
@@ -49,6 +53,18 @@ class AgentRunner:
             raise ValueError(f"Unknown agent type: {agent_type}")
             
         config = self.agent_configs[agent_type]
+        
+        # Detect if this is a self-call
+        is_self_call = (self.last_agent_type == agent_type and agent_type == "CoderAgent")
+        
+        # Create step log data
+        step_log_data = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "agent_type": agent_type,
+            "self_call": is_self_call,
+            "step_id": input_data.get("step_id", "unknown"),
+            "status": "started"
+        }
         
         try:
             # 1. Load prompt template
@@ -87,10 +103,12 @@ class AgentRunner:
             
             # 5. Generate response (with or without image)
             if image_path and os.path.exists(image_path):
-                log_step(f"🖼️ {agent_type} (with image)")
+                log_step(f"🖼️ {agent_type} (with image)" + (" [SELF-CALL]" if is_self_call else ""))
                 image = Image.open(image_path)
                 response = await model_manager.generate_content([full_prompt, image])
             else:
+                # Log the agent call with self-call indicator
+                log_step(f"🤖 {agent_type}" + (" [SELF-CALL]" if is_self_call else ""))
                 response = await model_manager.generate_text(full_prompt)
             
             # 6. Parse JSON response dynamically
@@ -109,6 +127,24 @@ class AgentRunner:
             # Add cost data to result
             output.update(cost_data)
             
+            # Update step log with success
+            step_log_data.update({
+                "status": "completed",
+                "end_time": datetime.utcnow().isoformat(),
+                "cost": cost_data.get("cost", 0.0),
+                "input_tokens": cost_data.get("input_tokens", 0),
+                "output_tokens": cost_data.get("output_tokens", 0),
+                "call_self_in_output": output.get("call_self", False) if isinstance(output, dict) else False
+            })
+            
+            # Log to file if we have a session_id
+            session_id = input_data.get("session_context", {}).get("session_id") or input_data.get("session_id", "default")
+            if session_id and session_id != "unknown":
+                append_step_log(session_id, step_log_data)
+            
+            # Update last agent type for next call
+            self.last_agent_type = agent_type
+            
             return {
                 "success": True,
                 "agent_type": agent_type,
@@ -116,6 +152,18 @@ class AgentRunner:
             }
             
         except Exception as e:
+            # Update step log with error
+            step_log_data.update({
+                "status": "failed",
+                "end_time": datetime.utcnow().isoformat(),
+                "error": str(e)
+            })
+            
+            # Log to file if we have a session_id
+            session_id = input_data.get("session_context", {}).get("session_id") or input_data.get("session_id", "default")
+            if session_id and session_id != "unknown":
+                append_step_log(session_id, step_log_data)
+            
             log_error(f"❌ {agent_type}: {str(e)}")
             return {
                 "success": False,

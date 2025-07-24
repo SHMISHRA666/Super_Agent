@@ -197,19 +197,23 @@ class AgentLoop4:
                     "reads": step_data.get("reads", []),
                     "writes": step_data.get("writes", []),
                     "inputs": inputs,
+                    "session_context": {
+                        "session_id": context.plan_graph.graph['session_id'],
+                        "created_at": context.plan_graph.graph['created_at'],
+                        "file_manifest": context.plan_graph.graph['file_manifest']
+                    },
                     **({"previous_output": previous_output} if previous_output else {}),
                     **({"iteration_context": iteration_context} if iteration_context else {})
                 }
 
-        # Initialize iteration tracking
+        # EXECUTION LOOP: Handle iterations with call_self
         max_iterations = 20
         current_iteration = 1
-        iterations_data = []
         current_output = None
-        current_instruction = None
+        current_instruction = step_data.get("agent_prompt", step_data["description"])
         current_iteration_context = None
-        
-        # Execute iterations loop
+        iterations_data = []
+
         while current_iteration <= max_iterations:
             # Build input for current iteration
             agent_input = build_agent_input(
@@ -218,7 +222,10 @@ class AgentLoop4:
                 iteration_context=current_iteration_context
             )
             
-            print(f"🔍 DEBUG: Running {agent_type} iteration {current_iteration}")
+            if current_iteration == 1:
+                print(f"🔍 DEBUG: Running {agent_type} iteration {current_iteration}")
+            else:
+                print(f"🔍 DEBUG: Running {agent_type} iteration {current_iteration} [SELF-CALL]")
             print(f"🔍 DEBUG: Agent input keys: {list(agent_input.keys())}")
             print(f"🔍 DEBUG: Inputs data: {list(inputs.keys())}")
             
@@ -240,13 +247,19 @@ class AgentLoop4:
             
             # Update iteration data
             current_output = result["output"]
+            iterations_data.append({
+                "iteration": current_iteration,
+                "is_self_call": current_iteration > 1,
+                "output": current_output,
+                "timestamp": datetime.utcnow().isoformat()
+            })
             current_iteration += 1
             
             # Check for call_self flag
             if current_output and isinstance(current_output, dict):
                 call_self = current_output.get("call_self", False)
                 if not call_self:
-                    print(f"✅ {agent_type} completed after {current_iteration} iterations")
+                    print(f"✅ {agent_type} completed after {current_iteration - 1} iterations")
                     break
                 
                 # Update instruction and context for next iteration
@@ -267,6 +280,12 @@ class AgentLoop4:
         step_data['iterations'] = iterations_data
         step_data['call_self_used'] = len(iterations_data) > 1
         step_data['final_iteration_output'] = current_output
+        step_data['total_iterations'] = len(iterations_data)
+        step_data['self_call_count'] = len([i for i in iterations_data if i.get('is_self_call', False)])
+        
+        # Log summary of self-calls
+        if step_data['call_self_used']:
+            print(f"📊 {agent_type} Summary: {step_data['total_iterations']} total iterations, {step_data['self_call_count']} self-calls")
         
         return {"success": True, "output": current_output}
 
