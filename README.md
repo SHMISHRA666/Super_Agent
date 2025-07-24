@@ -6,6 +6,8 @@ A sophisticated multi-agent AI system built on NetworkX graph execution that com
 
 Super Agent is an advanced AI orchestration system featuring **AgentLoop4** - a NetworkX graph-based execution engine that coordinates multiple specialized agents to handle complex queries. The system includes browser automation, MCP (Model Context Protocol) server integration, memory management, and real-time execution visualization.
 
+## Link to Demo - https://youtu.be/n33XGT5XvWo
+
 ## 🏗️ Architecture
 
 ### Core Components
